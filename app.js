@@ -7,7 +7,7 @@ const SUPABASE_URL = "https://iukpczwjmihchpdrupty.supabase.co";
 const SUPABASE_KEY = "sb_publishable_9hlGlsj4yIV5aJtN3dQ4Ow_7Gf-bIE5"; // clave pública (publishable)
 const FN = SUPABASE_URL + "/functions/v1/actas-proinpa";
 const BUCKET = "actas-proinpa";
-const MAX_MS = 3 * 60 * 60 * 1000;   // 3 horas por reunión
+const MAX_MS = 4 * 60 * 60 * 1000;   // capacidad máxima: 4 horas por reunión (no es obligatorio usarlas)
 const SEG_MS = 2 * 60 * 1000;        // tramos de audio de 2 minutos
 const KEY = "actasP.actual.v2";
 const AREAS = { directorio: "Reuniones de directorio", asambleas: "Reuniones de asambleas", cursos: "Cursos o talleres" };
@@ -109,7 +109,7 @@ function setSaveState(txt, col) { const el = $("saveState"); el.querySelector("s
 function save(now) { saveLocal(); if (!S.created) return; dirty = true; syncSoon(now ? 0 : 4000); }
 function syncSoon(ms) { clearTimeout(saveTimer); saveTimer = setTimeout(syncServer, ms); }
 const payload = s => ({
-  id: s.id, area: s.area, estado: s.estado, meta: s.meta, asistentes: s.people, orden: s.agenda,
+  id: s.id, area: s.area, estado: s.estado, meta: { ...s.meta, concluida: !!s.concluida }, asistentes: s.people, orden: s.agenda,
   segmentos: s.segs, duracion_ms: Math.round(s.elapsed), acta: s.acta, acta_html: s.acta_html,
 });
 async function syncServer() {
@@ -157,21 +157,25 @@ function renderClock() {
   const e = Math.min(curElapsed(), MAX_MS);
   $("clock").textContent = fmt(e);
   $("capBar").style.width = (e / MAX_MS * 100).toFixed(2) + "%";
-  $("capText").textContent = "Restan " + fmt(MAX_MS - e) + " de 3:00:00";
-  if (live && e >= MAX_MS) { stopRec(); toast("Se alcanzó el límite de 3 horas. Grabación guardada."); }
+  $("capText").textContent = S.concluida ? "Reunión concluida · duración " + fmt(e) : "Capacidad: quedan " + fmt(MAX_MS - e) + " de 4:00:00";
+  if (live && e >= MAX_MS) { concludeRec(true); }
 }
 function setState(kind, label) {
+  if (S.concluida && kind !== "live") { kind = "done"; label = "Reunión concluida"; }
   const c = $("stateChip"); c.className = "state " + (kind || ""); c.textContent = label;
-  const b = $("recBtn"); b.classList.toggle("on", kind === "live");
-  b.textContent = kind === "live" ? "DETENER" : (S.segs.length || S.audioN ? "REANUDAR" : "GRABAR");
-  b.setAttribute("aria-label", kind === "live" ? "Detener grabación" : "Iniciar grabación");
+  const b = $("recBtn"), empezada = S.segs.length || S.audioN || S.elapsed > 0;
+  b.classList.toggle("on", kind === "live");
+  b.classList.toggle("paused", kind !== "live" && !!empezada && !S.concluida);
+  b.textContent = kind === "live" ? "PAUSAR" : S.concluida ? "REABRIR" : empezada ? "REANUDAR" : "GRABAR";
+  b.setAttribute("aria-label", kind === "live" ? "Pausar grabación" : S.concluida ? "Reabrir la grabación" : empezada ? "Reanudar grabación" : "Iniciar grabación");
+  $("endBtn").hidden = !(S.created && (kind === "live" || empezada) && !S.concluida);
   $("markBtn").disabled = kind !== "live";
 }
 
 async function startRec() {
   if (!canRecord) { $("micBanner").hidden = false; return; }
   if (YO && YO.rol === "lector") { toast("Tu cuenta es de solo lectura."); return; }
-  if (S.elapsed >= MAX_MS) { toast("Esta reunión ya usó las 3 horas. Crea una nueva."); return; }
+  if (S.elapsed >= MAX_MS) { toast("Esta reunión ya usó las 4 horas de capacidad. Crea una nueva para seguir."); return; }
   userStop = false;
   setState("paused", "Conectando micrófono…");
   try {
@@ -241,11 +245,26 @@ function finishRun() {
   clearInterval(tick); tick = null;
   renderClock(); renderTranscript();
 }
-async function stopRec() {
+// Pausar: se detiene un momento; Reanudar sigue en el mismo registro.
+async function pauseRec() {
   userStop = true; finishRun();
-  S.recording = false; S.estado = "borrador"; save(true);
-  setState("", "Grabación detenida y guardada");
+  S.recording = false; S.estado = "grabando"; save(true);
+  setState("paused", "En pausa · " + fmt(S.elapsed) + " guardado");
 }
+// Concluir: cierra la grabación de la reunión y pasa al acta.
+function concludeRec(porLimite) {
+  userStop = true; if (live) finishRun();
+  S.recording = false; S.estado = "borrador"; S.concluida = true;
+  S.meta.hora_fin = new Date().toTimeString().slice(0, 5);
+  $("recoverBanner").hidden = true;
+  save(true); setState("done", "Reunión concluida"); renderClock();
+  toast(porLimite ? "Se llegó a las 4 horas: la reunión se concluyó y quedó guardada." : "Reunión concluida. Ya puedes generar el acta.");
+  showTab("acta");
+  const p = $("genProg"); p.hidden = false; p.style.color = ""; p.textContent = "La grabación terminó (" + fmt(S.elapsed) + "). Toca el botón para redactar el documento.";
+}
+$("endBtn").onclick = () => { $("endText").textContent = "Se cierra la grabación (" + fmt(curElapsed()) + ") y pasas a generar el acta. Lo grabado queda guardado."; $("endModal").hidden = false; };
+$("endNo").onclick = () => $("endModal").hidden = true;
+$("endYes").onclick = () => { $("endModal").hidden = true; concludeRec(false); };
 function interrupted(why) {
   if (!live) return;
   finishRun(); S.recording = true; save(true);
@@ -262,12 +281,13 @@ function appendText(text, t) {
   save();
 }
 $("recBtn").addEventListener("click", () => {
-  if (live) return stopRec();
+  if (live) return pauseRec();
   if (!S.created) return openCreate();
+  if (S.concluida) { S.concluida = false; delete S.meta.hora_fin; save(true); toast("Reunión reabierta: la grabación sigue en el mismo registro."); }
   startRec();
 });
 $("resumeBtn").addEventListener("click", () => { $("recoverBanner").hidden = true; startRec(); });
-$("dismissRecover").addEventListener("click", () => { $("recoverBanner").hidden = true; S.recording = false; S.estado = "borrador"; save(); });
+$("dismissRecover").addEventListener("click", () => { $("recoverBanner").hidden = true; });
 $("markBtn").addEventListener("click", () => {
   const n = S.segs.filter(s => s.mark && !s.imp).length + 1;
   const label = S.agenda[n - 1] ? "Punto " + n + ": " + S.agenda[n - 1] : "Punto " + n + " del orden del día";
@@ -747,7 +767,7 @@ async function openMeeting(id) {
     await flushSave();
     const { reunion: r, documentos, audios } = await api("obtener", { id });
     S = {
-      id: r.id, area: r.area, estado: r.estado === "grabando" ? "borrador" : r.estado, created: true, recording: false,
+      id: r.id, area: r.area, estado: r.estado === "grabando" ? "borrador" : r.estado, created: true, recording: false, concluida: !!(r.meta && r.meta.concluida),
       elapsed: Number(r.duracion_ms) || 0, segs: r.segmentos || [], acta: r.acta, acta_html: r.acta_html,
       meta: { ...blank().meta, ...(r.meta || {}) }, people: r.asistentes || [], agenda: r.orden || [],
       docs: (documentos || []).map(d => ({ sid: d.id, name: d.nombre, ext: d.ext, pages: d.paginas, text: d.texto, chars: (d.texto || "").length })),
@@ -805,7 +825,10 @@ $("passSave").onclick = async () => {
    ========================================================= */
 function renderAll() {
   renderMeta(); renderPeople(); renderAgenda(); renderQuorum(); renderTranscript(); renderClock(); renderActa(); renderHist(); renderCtx(); renderAudioLine();
-  if (!live) setState("", S.segs.length ? "Registro guardado" : "Listo para grabar");
+  if (!live) {
+    if (S.estado === "grabando" && !S.concluida) setState("paused", "En pausa · " + fmt(S.elapsed) + " guardado");
+    else setState("", S.segs.length ? "Registro guardado" : "Listo para grabar");
+  }
 }
 if (!canRecord) $("micBanner").hidden = false;
 showTab("grabar");

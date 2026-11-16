@@ -80,13 +80,16 @@
       <span class="state" id="stateChip">Listo para grabar</span>
       <div class="clock" id="clock">00:00:00</div>
       <div class="bar" aria-hidden="true"><span id="capBar"></span></div>
-      <div class="cap" id="capText">Límite por sesión: 3:00:00</div>
-      <button class="recbtn" id="recBtn" aria-label="Iniciar grabación">GRABAR</button>
+      <div class="cap" id="capText">Capacidad: hasta 4:00:00 por reunión</div>
+      <div class="recrow">
+        <button class="recbtn" id="recBtn" aria-label="Iniciar grabación">GRABAR</button>
+        <button class="endbtn" id="endBtn" hidden aria-label="Concluir la reunión"><span aria-hidden="true">■</span>CONCLUIR</button>
+      </div>
       <div class="row" style="justify-content:center">
         <button class="btn" id="markBtn" disabled>Marcar punto del orden del día</button>
       </div>
       <p class="hint" id="audioLine" style="text-align:center"></p>
-      <p class="hint" style="text-align:center;max-width:48ch">El audio se guarda en tramos de 2 minutos en el servidor. Si se bloquea el celular, entra una llamada o se cierra la app, lo grabado no se pierde y puedes reanudar.</p>
+      <p class="hint" style="text-align:center;max-width:48ch"><strong>Pausar</strong> detiene un momento y luego puedes reanudar. <strong>Concluir</strong> cierra la grabación y pasa al acta. El audio se guarda en tramos de 2 minutos en el servidor. Si se bloquea el celular, entra una llamada o se cierra la app, lo grabado no se pierde y puedes reanudar.</p>
     </div>
 
     <div class="card">
@@ -233,6 +236,15 @@
       <button class="btn" id="createOnly">Crear sin grabar</button>
       <button class="btn" id="createCancel">Cancelar</button>
     </div>
+  </div>
+</div>
+
+<!-- Concluir -->
+<div class="modal" id="endModal" hidden role="dialog" aria-labelledby="endH">
+  <div class="card">
+    <h2 id="endH">¿Concluir la reunión?</h2>
+    <p class="hint" id="endText">Se cierra la grabación y pasas a generar el acta. Lo grabado queda guardado.</p>
+    <div class="row"><button class="btn primary" id="endYes">Concluir y generar acta</button><button class="btn" id="endNo">Seguir grabando</button></div>
   </div>
 </div>
 

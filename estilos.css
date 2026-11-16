@@ -172,3 +172,11 @@ input,select{border:1px solid var(--line);border-radius:8px;padding:8px 10px;bac
   #v-acta{display:block !important}
   .acta{border:0;box-shadow:none;padding:0;color:#000}
 }
+
+/* Grabar · pausar · concluir */
+.recrow{display:flex;gap:22px;align-items:center;justify-content:center}
+.recbtn.paused{background:var(--sheet);color:var(--rec)}
+.endbtn{width:72px;height:72px;border-radius:50%;border:2px solid var(--ink);background:var(--sheet);color:var(--ink);cursor:pointer;display:grid;place-items:center;align-content:center;gap:2px;font-weight:700;font-size:10px;letter-spacing:.04em}
+.endbtn span{font-size:18px;line-height:1}
+.endbtn:hover{background:var(--ink);color:var(--sheet)}
+.state.done{background:color-mix(in srgb,var(--ok) 15%,var(--sheet));color:var(--ok)}
