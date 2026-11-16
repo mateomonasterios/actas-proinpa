@@ -627,6 +627,21 @@ function renderCtx() {
 /* =========================================================
    IA: detectar asistentes y generar el acta
    ========================================================= */
+// Antes de usar la IA: si hay audio sin texto, se transcribe primero (cuando el servidor tiene transcripción).
+async function asegurarTexto(prog) {
+  const pendientes = (S.audios || []).filter(a => !a.transcrito);
+  if (pendientes.length && YO && YO.stt) {
+    await drainQueue();
+    for (let i = 0; i < pendientes.length; i++) { prog.textContent = `Transcribiendo el audio: tramo ${i + 1} de ${pendientes.length}…`; await transcribeOne(pendientes[i].n, pendientes[i].inicio_ms); }
+  }
+  if (S.segs.some(s => !s.mark)) return true;
+  prog.hidden = false; prog.style.color = "var(--rec)";
+  prog.textContent = (S.audioN && !(YO && YO.stt))
+    ? "El audio está guardado, pero todavía no hay texto: el reconocimiento de voz del celular no captó nada y la transcripción del audio en el servidor aún no está activada. Cuando se active, este audio se transcribe solo. Mientras tanto puedes pegar o importar una transcripción en la pestaña Grabar."
+    : S.audioN ? "El audio no tiene voz reconocible. Revisa que el micrófono no esté tapado e intenta de nuevo."
+    : "Primero graba la reunión o importa una transcripción.";
+  return false;
+}
 const transcriptText = () => S.segs.map(s => `[${fmt(s.t)}] ${s.x}`).join("\n");
 function aiErr(e, el) { el.hidden = false; el.style.color = "var(--rec)"; el.textContent = "No se pudo completar: " + (e.message || "revisa la conexión") + ". Intenta otra vez."; }
 async function condensed(progEl) {
@@ -643,9 +658,9 @@ async function condensed(progEl) {
 }
 $("detectBtn").onclick = async () => {
   const prog = $("detectProg");
-  if (!S.segs.length) { prog.hidden = false; prog.style.color = ""; prog.textContent = "Primero graba o importa la transcripción."; return; }
   prog.hidden = false; prog.style.color = ""; prog.textContent = "Analizando la grabación…"; $("detectBtn").disabled = true;
   try {
+    if (!(await asegurarTexto(prog))) { $("detectBtn").disabled = false; return; }
     const texto = await condensed(prog);
     prog.textContent = "Identificando asistentes, orden del día y quórum…";
     const { r } = await api("ia", { tarea: "detectar", texto, contexto: docContext() });
@@ -665,9 +680,9 @@ $("detectBtn").onclick = async () => {
 };
 $("genBtn").onclick = async () => {
   const prog = $("genProg");
-  if (!S.segs.length) { prog.hidden = false; prog.style.color = ""; prog.textContent = "Primero graba o importa la transcripción."; return; }
   prog.hidden = false; prog.style.color = ""; prog.textContent = "Preparando…"; $("genBtn").disabled = true;
   try {
+    if (!(await asegurarTexto(prog))) { $("genBtn").disabled = false; return; }
     const texto = await condensed(prog);
     const q = quorum();
     prog.textContent = "Redactando el documento… puede tardar uno o dos minutos.";

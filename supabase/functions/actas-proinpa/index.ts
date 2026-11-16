@@ -7,8 +7,9 @@
 //   audio_url (enlace firmado para subir un tramo) · audio_ver · transcribir
 //   ia { tarea: contexto | ocr | detectar | resumir | acta }
 //   usuarios_listar · usuario_crear · usuario_estado   (solo admin)
-// Secretos: ANTHROPIC_API_KEY (ya existe en el proyecto). OPENAI_API_KEY es opcional:
-// si está, el audio grabado se transcribe en el servidor (sirve aunque el celular esté bloqueado).
+// Secretos: ANTHROPIC_API_KEY (ya existe en el proyecto). Para transcribir el audio en el servidor
+// (sirve aunque el celular esté bloqueado) hace falta UNA de estas claves: OPENAI_API_KEY, GROQ_API_KEY,
+// ELEVENLABS_API_KEY, DEEPGRAM_API_KEY o GEMINI_API_KEY.
 import Anthropic from "npm:@anthropic-ai/sdk@1.3.0";
 import postgres from "npm:postgres@3.4.5";
 import { createClient } from "npm:@supabase/supabase-js@2.45.4";
@@ -18,7 +19,10 @@ const sb = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SE
 const BUCKET = "actas-proinpa";
 const MODELO = "claude-opus-5-5";
 const BETAS = ["server-side-fallback-2026-07-01"];
-const OPENAI = (Deno.env.get("OPENAI_API_KEY") || "").trim();
+const env = (k: string) => (Deno.env.get(k) || "").trim();
+// Transcripción del audio: se usa el primer proveedor que tenga clave en los secretos de Supabase.
+const STT = env("OPENAI_API_KEY") ? "openai" : env("GROQ_API_KEY") ? "groq" : env("ELEVENLABS_API_KEY") ? "elevenlabs"
+  : env("DEEPGRAM_API_KEY") ? "deepgram" : (env("GEMINI_API_KEY") || env("GOOGLE_API_KEY")) ? "gemini" : "";
 const claude = new Anthropic();
 
 const cors = {
@@ -135,9 +139,69 @@ ${String(b.texto || "").slice(0, 300000)}` }], ESQ_ACTA, 24000, "medium");
   throw new Error("Tarea desconocida.");
 }
 
-// ---------- transcripción del audio (opcional) ----------
+// ---------- transcripción del audio ----------
+async function sttTexto(data: Blob, ext: string, mime: string, prompt: string): Promise<string> {
+  const file = () => new File([data], `tramo.${ext}`, { type: mime });
+  const err = async (r: Response, q: string) => { throw new Error(`Transcripción (${q}) ${r.status}: ${(await r.text()).slice(0, 200)}`); };
+  if (STT === "openai" || STT === "groq") {
+    const url = STT === "openai" ? "https://api.openai.com/v1/audio/transcriptions" : "https://api.groq.com/openai/v1/audio/transcriptions";
+    const key = env(STT === "openai" ? "OPENAI_API_KEY" : "GROQ_API_KEY");
+    const modelos = STT === "openai" ? ["gpt-4o-transcribe", "whisper-1"] : ["whisper-large-v3"];
+    let ultimo: unknown;
+    for (const modelo of modelos) {
+      const fd = new FormData();
+      fd.append("file", file()); fd.append("model", modelo); fd.append("language", "es"); fd.append("prompt", prompt.slice(0, 800));
+      const r = await fetch(url, { method: "POST", headers: { Authorization: `Bearer ${key}` }, body: fd });
+      if (r.ok) return ((await r.json()).text || "") as string;
+      try { await err(r, STT); } catch (e) { ultimo = e; }
+    }
+    throw ultimo;
+  }
+  if (STT === "elevenlabs") {
+    const fd = new FormData();
+    fd.append("file", file()); fd.append("model_id", "scribe_v1"); fd.append("language_code", "spa"); fd.append("diarize", "true");
+    const r = await fetch("https://api.elevenlabs.io/v1/speech-to-text", { method: "POST", headers: { "xi-api-key": env("ELEVENLABS_API_KEY") }, body: fd });
+    if (!r.ok) await err(r, "elevenlabs");
+    const j = await r.json();
+    // con diarización: separa por hablante
+    const words = (j.words || []) as { text: string; speaker_id?: string; type?: string }[];
+    if (words.some((w) => w.speaker_id)) {
+      let out = "", sp = "";
+      for (const w of words) {
+        if (w.speaker_id && w.speaker_id !== sp) { sp = w.speaker_id; out += `\n[Hablante ${sp.replace(/\D/g, "") || sp}] `; }
+        out += w.text;
+      }
+      return out.trim();
+    }
+    return (j.text || "") as string;
+  }
+  if (STT === "deepgram") {
+    const r = await fetch("https://api.deepgram.com/v1/listen?model=nova-2&language=es&smart_format=true&punctuate=true&diarize=true", {
+      method: "POST", headers: { Authorization: `Token ${env("DEEPGRAM_API_KEY")}`, "Content-Type": mime }, body: data,
+    });
+    if (!r.ok) await err(r, "deepgram");
+    const j = await r.json();
+    return (j?.results?.channels?.[0]?.alternatives?.[0]?.transcript || "") as string;
+  }
+  if (STT === "gemini") {
+    const buf = new Uint8Array(await data.arrayBuffer());
+    let bin = ""; for (let i = 0; i < buf.length; i += 0x8000) bin += String.fromCharCode(...buf.subarray(i, i + 0x8000));
+    const key = env("GEMINI_API_KEY") || env("GOOGLE_API_KEY");
+    const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${key}`, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ contents: [{ parts: [
+        { inline_data: { mime_type: mime, data: btoa(bin) } },
+        { text: `Transcribe fielmente este audio en español, sin resumir ni comentar. Si hay varias voces, separa por hablante. Contexto: ${prompt}` },
+      ] }] }),
+    });
+    if (!r.ok) await err(r, "gemini");
+    const j = await r.json();
+    return (j?.candidates?.[0]?.content?.parts || []).map((p: { text?: string }) => p.text || "").join("");
+  }
+  return "";
+}
 async function transcribir(reunion: string, n: number) {
-  if (!OPENAI) return { stt: false };
+  if (!STT) return { stt: false };
   const a = await sql`select path, inicio_ms from actas_proinpa.audios where reunion_id = ${reunion} and n = ${n}`;
   if (!a.length) throw new Error("Ese tramo de audio no existe.");
   const { data, error } = await sb.storage.from(BUCKET).download(a[0].path);
@@ -145,20 +209,11 @@ async function transcribir(reunion: string, n: number) {
   const r = await sql`select meta, asistentes from actas_proinpa.reuniones where id = ${reunion}`;
   const nombres = ((r[0]?.asistentes || []) as { n: string }[]).map((p) => p.n).filter(Boolean).slice(0, 60).join(", ");
   const ext = a[0].path.split(".").pop() || "webm";
-  const intentar = async (modelo: string) => {
-    const fd = new FormData();
-    fd.append("file", new File([data], `tramo.${ext}`, { type: data.type || "audio/webm" }));
-    fd.append("model", modelo);
-    fd.append("language", "es");
-    fd.append("prompt", `Reunión de la Fundación PROINPA, Bolivia. ${r[0]?.meta?.entidad || ""}. Participantes: ${nombres}`.slice(0, 900));
-    const res = await fetch("https://api.openai.com/v1/audio/transcriptions", { method: "POST", headers: { Authorization: `Bearer ${OPENAI}` }, body: fd });
-    if (!res.ok) throw new Error(`Transcripción ${res.status}: ${(await res.text()).slice(0, 200)}`);
-    return (await res.json()).text as string;
-  };
-  let texto: string;
-  try { texto = await intentar("gpt-4o-transcribe"); } catch { texto = await intentar("whisper-1"); }
+  const mime = ext === "m4a" ? "audio/mp4" : ext === "ogg" ? "audio/ogg" : "audio/webm";
+  const prompt = `Reunión de la Fundación PROINPA, Bolivia. ${r[0]?.meta?.entidad || ""}. Participantes: ${nombres}`;
+  const texto = (await sttTexto(data, ext, mime, prompt)).trim();
   await sql`update actas_proinpa.audios set transcrito = true where reunion_id = ${reunion} and n = ${n}`;
-  return { stt: true, texto: (texto || "").trim(), inicio_ms: Number(a[0].inicio_ms) };
+  return { stt: true, texto, inicio_ms: Number(a[0].inicio_ms) };
 }
 
 Deno.serve(async (req) => {
@@ -167,12 +222,14 @@ Deno.serve(async (req) => {
   let b: S = {};
   try { b = await req.json(); } catch { return fail("Pedido inválido"); }
   try {
+    // estado público mínimo: solo dice si la transcripción del audio está activa
+    if (b.accion === "estado") return json({ stt: !!STT, proveedor: STT || null });
     const yo = await quien(req);
     if (!yo) return fail("No tienes acceso o tu sesión venció. Vuelve a entrar.", 401);
     const escribe = yo.rol !== "lector";
     const accion = String(b.accion || "");
 
-    if (accion === "yo") return json({ nombre: yo.nombre, rol: yo.rol, email: yo.email, stt: !!OPENAI });
+    if (accion === "yo") return json({ nombre: yo.nombre, rol: yo.rol, email: yo.email, stt: !!STT });
 
     if (accion === "listar") {
       const area = ["directorio", "asambleas", "cursos"].includes(String(b.area)) ? String(b.area) : null;
