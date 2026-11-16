@@ -24,6 +24,10 @@ const store = {
   set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); return true; } catch { return false; } },
 };
 function toast(msg) { const t = $("toast"); t.textContent = msg; t.classList.add("show"); clearTimeout(toast._t); toast._t = setTimeout(() => t.classList.remove("show"), 2800); }
+// Usuario simple (c.aparicio) → cuenta interna de la app (c.aparicio@actas-proinpa.app)
+const DOMINIO = "actas-proinpa.app";
+const aEmail = u => { u = String(u || "").trim().toLowerCase(); return !u ? "" : u.includes("@") ? u : u + "@" + DOMINIO; };
+const aUsuario = e => String(e || "").endsWith("@" + DOMINIO) ? e.slice(0, -DOMINIO.length - 1) : e;
 function longDate(iso) { if (!iso) return "No consta"; const d = new Date(iso + "T12:00:00"); return isNaN(d) ? iso : d.toLocaleDateString("es-BO", { weekday: "long", day: "numeric", month: "long", year: "numeric" }); }
 
 /* =========================================================
@@ -69,11 +73,11 @@ async function enter() {
 }
 $("loginForm").addEventListener("submit", async e => {
   e.preventDefault();
-  const email = $("l-email").value.trim(), password = $("l-pass").value;
-  if (!email || !password) { $("loginMsg").textContent = "Escribe tu correo y tu contraseña."; $("loginMsg").className = "msg err"; return; }
+  const email = aEmail($("l-email").value), password = $("l-pass").value;
+  if (!email || !password) { $("loginMsg").textContent = "Escribe tu usuario y tu contraseña."; $("loginMsg").className = "msg err"; return; }
   $("loginBtn").disabled = true; $("loginMsg").className = "msg"; $("loginMsg").textContent = "Entrando…";
   const { error } = await sb.auth.signInWithPassword({ email, password });
-  if (error) { showLogin(/invalid/i.test(error.message) ? "Correo o contraseña incorrectos." : error.message); return; }
+  if (error) { showLogin(/invalid/i.test(error.message) ? "Usuario o contraseña incorrectos." : error.message); return; }
   $("l-pass").value = "";
   enter();
 });
@@ -764,7 +768,7 @@ async function loadUsers() {
   try {
     const { usuarios } = await api("usuarios_listar");
     const ROL = { admin: "Administrador", secretario: "Graba y redacta", lector: "Solo lectura" };
-    box.innerHTML = usuarios.map(u => `<div class="user${u.activo ? "" : " off"}"><div>${esc(u.nombre)}<small>${esc(u.email)} · ${ROL[u.rol] || u.rol}${u.activo ? "" : " · sin acceso"}</small></div>
+    box.innerHTML = usuarios.map(u => `<div class="user${u.activo ? "" : " off"}"><div>${esc(u.nombre)}<small>${esc(aUsuario(u.email))} · ${ROL[u.rol] || u.rol}${u.activo ? "" : " · sin acceso"}</small></div>
       ${u.user_id === YO.id ? "" : `<button class="lockbtn" data-u="${u.user_id}" data-a="${u.activo ? 0 : 1}">${u.activo ? "Quitar acceso" : "Devolver acceso"}</button>`}</div>`).join("");
     box.querySelectorAll("button").forEach(b => b.onclick = async () => {
       try { await api("usuario_estado", { user_id: b.dataset.u, activo: b.dataset.a === "1" }); loadUsers(); } catch (e) { toast(e.message); }
@@ -774,8 +778,8 @@ async function loadUsers() {
 $("u-crear").onclick = async () => {
   const p = $("usersProg"); p.hidden = false; p.style.color = ""; p.textContent = "Creando acceso…";
   try {
-    const r = await api("usuario_crear", { nombre: $("u-nombre").value, email: $("u-email").value, password: $("u-pass").value, rol: $("u-rol").value });
-    p.textContent = r.existente ? "Listo. Esa persona ya tenía cuenta: entra con su misma contraseña." : "Listo. Comparte el correo y la contraseña inicial con la persona.";
+    const r = await api("usuario_crear", { nombre: $("u-nombre").value, email: aEmail($("u-email").value), password: $("u-pass").value, rol: $("u-rol").value });
+    p.textContent = r.existente ? "Listo. Esa persona ya tenía cuenta: entra con su misma contraseña." : "Listo. Comparte el usuario y la contraseña inicial con la persona.";
     $("u-nombre").value = $("u-email").value = $("u-pass").value = ""; loadUsers();
   } catch (e) { p.style.color = "var(--rec)"; p.textContent = e.message; }
 };
@@ -783,7 +787,7 @@ $("u-crear").onclick = async () => {
 /* =========================================================
    Cambiar mi contraseña
    ========================================================= */
-$("passBtn").onclick = () => { $("passWho").textContent = "Cuenta: " + (YO ? YO.email : ""); $("p-new").value = $("p-new2").value = ""; $("passProg").hidden = true; $("passModal").hidden = false; };
+$("passBtn").onclick = () => { $("passWho").textContent = "Usuario: " + (YO ? aUsuario(YO.email) : ""); $("p-new").value = $("p-new2").value = ""; $("passProg").hidden = true; $("passModal").hidden = false; };
 $("passClose").onclick = () => $("passModal").hidden = true;
 $("passSave").onclick = async () => {
   const p = $("passProg"), a = $("p-new").value, b = $("p-new2").value;

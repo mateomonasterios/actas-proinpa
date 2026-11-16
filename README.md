@@ -4,7 +4,7 @@ App para grabar reuniones, asambleas, cursos y talleres y generar el acta o el i
 
 - Sitio estático para Vercel (sin compilación ni variables).
 - La base de datos vive en Supabase, proyecto **Disruptivo 360**, esquema propio `actas_proinpa`.
-- El acceso es privado: solo entran las personas registradas en `actas_proinpa.miembros`, con correo y contraseña de Supabase Auth.
+- El acceso es privado: solo entran las personas registradas en `actas_proinpa.miembros`. Se entra con un usuario simple (por ejemplo `c.aparicio`, que por dentro es `c.aparicio@actas-proinpa.app` en Supabase Auth) o con un correo. Cada persona cambia su contraseña desde el botón **Contraseña**.
 
 ## Qué hace
 

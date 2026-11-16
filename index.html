@@ -244,11 +244,11 @@
     <h3>Dar acceso a una persona</h3>
     <div class="grid2">
       <label for="u-nombre">Nombre<input id="u-nombre" placeholder="Cristian Aparicio"></label>
-      <label for="u-email">Correo<input id="u-email" type="email" autocomplete="off" placeholder="correo@proinpa.org"></label>
+      <label for="u-email">Usuario o correo<input id="u-email" type="text" autocomplete="off" autocapitalize="none" placeholder="m.perez"></label>
       <label for="u-pass">Contraseña inicial<input id="u-pass" type="text" autocomplete="new-password" placeholder="Mínimo 8 caracteres"></label>
       <label for="u-rol">Rol<select id="u-rol"><option value="secretario">Graba y redacta</option><option value="admin">Administrador</option><option value="lector">Solo lectura</option></select></label>
     </div>
-    <p class="hint">Si el correo ya tiene cuenta en otro sistema de Disruptivo 360, entra con su misma contraseña.</p>
+    <p class="hint">Con un usuario simple (por ejemplo m.perez) la cuenta es solo de esta app. Si pones un correo que ya tiene cuenta en otro sistema de Disruptivo 360, entra con su misma contraseña.</p>
     <button class="btn primary" id="u-crear">Dar acceso</button>
     <span class="progress" id="usersProg" hidden></span>
   </div>
@@ -275,7 +275,7 @@
       <p class="who">Grabación e informes de reuniones</p>
     </div>
     <form class="lform" id="loginForm" novalidate>
-      <label for="l-email">Correo<input id="l-email" type="email" autocomplete="username" inputmode="email" required></label>
+      <label for="l-email">Usuario<input id="l-email" type="text" autocomplete="username" autocapitalize="none" spellcheck="false" placeholder="c.aparicio" required></label>
       <label for="l-pass">Contraseña<input id="l-pass" type="password" autocomplete="current-password" required></label>
       <div class="msg" id="loginMsg" aria-live="polite"></div>
       <button class="lbtn" type="submit" id="loginBtn">Entrar</button>
