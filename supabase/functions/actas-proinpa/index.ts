@@ -13,6 +13,8 @@
 import Anthropic from "npm:@anthropic-ai/sdk@1.3.0";
 import postgres from "npm:postgres@3.4.5";
 import { createClient } from "npm:@supabase/supabase-js@2.45.4";
+import { createDecipheriv, scryptSync } from "node:crypto";
+import { Buffer } from "node:buffer";
 
 const sql = postgres(Deno.env.get("SUPABASE_DB_URL")!, { prepare: false, max: 1, idle_timeout: 5, max_lifetime: 60, connect_timeout: 10 });
 const sb = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!, { auth: { persistSession: false, autoRefreshToken: false } });
@@ -20,9 +22,37 @@ const BUCKET = "actas-proinpa";
 const MODELO = "claude-opus-5-5";
 const BETAS = ["server-side-fallback-2026-07-01"];
 const env = (k: string) => (Deno.env.get(k) || "").trim();
-// Transcripción del audio: se usa el primer proveedor que tenga clave en los secretos de Supabase.
-const STT = env("OPENAI_API_KEY") ? "openai" : env("GROQ_API_KEY") ? "groq" : env("ELEVENLABS_API_KEY") ? "elevenlabs"
-  : env("DEEPGRAM_API_KEY") ? "deepgram" : (env("GEMINI_API_KEY") || env("GOOGLE_API_KEY")) ? "gemini" : "";
+// Transcripción del audio. Orden: OPENAI_API_KEY en los secretos de Supabase; si no está, la clave de OpenAI
+// que ya usa Disruptivo OS (os.orquestador_ias, cifrada con AES-256-GCM y la llave CREDENTIALS_ENCRYPTION_KEY
+// guardada en el vault). Se descifra solo aquí, en memoria, y nunca se devuelve al navegador.
+// Si no hay OpenAI: GROQ_API_KEY, ELEVENLABS_API_KEY, DEEPGRAM_API_KEY o GEMINI_API_KEY.
+let OPENAI_OS: string | null | undefined;
+async function claveOpenAI(): Promise<string> {
+  if (env("OPENAI_API_KEY")) return env("OPENAI_API_KEY");
+  if (OPENAI_OS !== undefined) return OPENAI_OS || "";
+  OPENAI_OS = null;
+  try {
+    const filas = await sql`select api_key_cifrada from os.orquestador_ias
+      where proveedor = 'openai' and activo and base_url is null and api_key_cifrada is not null order by actualizado_en desc limit 5`;
+    const llaves = await sql`select decrypted_secret from vault.decrypted_secrets where name in ('CREDENTIALS_ENCRYPTION_KEY', 'CREDENTIALS_ENCRYPTION_KEY_OS')`;
+    for (const f of filas) for (const l of llaves) {
+      try {
+        const [iv, tag, dato] = String(f.api_key_cifrada).split(":");
+        const k = scryptSync(String(l.decrypted_secret), "formulario-maestro-credentials", 32);
+        const d = createDecipheriv("aes-256-gcm", k, Buffer.from(iv, "base64"));
+        d.setAuthTag(Buffer.from(tag, "base64"));
+        const clave = Buffer.concat([d.update(Buffer.from(dato, "base64")), d.final()]).toString("utf8").trim();
+        if (clave.startsWith("sk-")) { OPENAI_OS = clave; return clave; }
+      } catch { /* llave que no corresponde */ }
+    }
+  } catch (e) { console.error("clave OpenAI de Disruptivo OS", e); }
+  return "";
+}
+async function proveedorSTT(): Promise<string> {
+  if (await claveOpenAI()) return "openai";
+  return env("GROQ_API_KEY") ? "groq" : env("ELEVENLABS_API_KEY") ? "elevenlabs" : env("DEEPGRAM_API_KEY") ? "deepgram"
+    : (env("GEMINI_API_KEY") || env("GOOGLE_API_KEY")) ? "gemini" : "";
+}
 const claude = new Anthropic();
 
 const cors = {
@@ -140,12 +170,12 @@ ${String(b.texto || "").slice(0, 300000)}` }], ESQ_ACTA, 24000, "medium");
 }
 
 // ---------- transcripción del audio ----------
-async function sttTexto(data: Blob, ext: string, mime: string, prompt: string): Promise<string> {
+async function sttTexto(STT: string, data: Blob, ext: string, mime: string, prompt: string): Promise<string> {
   const file = () => new File([data], `tramo.${ext}`, { type: mime });
   const err = async (r: Response, q: string) => { throw new Error(`Transcripción (${q}) ${r.status}: ${(await r.text()).slice(0, 200)}`); };
   if (STT === "openai" || STT === "groq") {
     const url = STT === "openai" ? "https://api.openai.com/v1/audio/transcriptions" : "https://api.groq.com/openai/v1/audio/transcriptions";
-    const key = env(STT === "openai" ? "OPENAI_API_KEY" : "GROQ_API_KEY");
+    const key = STT === "openai" ? await claveOpenAI() : env("GROQ_API_KEY");
     const modelos = STT === "openai" ? ["gpt-4o-transcribe", "whisper-1"] : ["whisper-large-v3"];
     let ultimo: unknown;
     for (const modelo of modelos) {
@@ -201,6 +231,7 @@ async function sttTexto(data: Blob, ext: string, mime: string, prompt: string): 
   return "";
 }
 async function transcribir(reunion: string, n: number) {
+  const STT = await proveedorSTT();
   if (!STT) return { stt: false };
   const a = await sql`select path, inicio_ms from actas_proinpa.audios where reunion_id = ${reunion} and n = ${n}`;
   if (!a.length) throw new Error("Ese tramo de audio no existe.");
@@ -211,7 +242,7 @@ async function transcribir(reunion: string, n: number) {
   const ext = a[0].path.split(".").pop() || "webm";
   const mime = ext === "m4a" ? "audio/mp4" : ext === "ogg" ? "audio/ogg" : "audio/webm";
   const prompt = `Reunión de la Fundación PROINPA, Bolivia. ${r[0]?.meta?.entidad || ""}. Participantes: ${nombres}`;
-  const texto = (await sttTexto(data, ext, mime, prompt)).trim();
+  const texto = (await sttTexto(STT, data, ext, mime, prompt)).trim();
   await sql`update actas_proinpa.audios set transcrito = true where reunion_id = ${reunion} and n = ${n}`;
   return { stt: true, texto, inicio_ms: Number(a[0].inicio_ms) };
 }
@@ -223,13 +254,13 @@ Deno.serve(async (req) => {
   try { b = await req.json(); } catch { return fail("Pedido inválido"); }
   try {
     // estado público mínimo: solo dice si la transcripción del audio está activa
-    if (b.accion === "estado") return json({ stt: !!STT, proveedor: STT || null });
+    if (b.accion === "estado") { const p = await proveedorSTT(); return json({ stt: !!p, proveedor: p || null }); }
     const yo = await quien(req);
     if (!yo) return fail("No tienes acceso o tu sesión venció. Vuelve a entrar.", 401);
     const escribe = yo.rol !== "lector";
     const accion = String(b.accion || "");
 
-    if (accion === "yo") return json({ nombre: yo.nombre, rol: yo.rol, email: yo.email, stt: !!STT });
+    if (accion === "yo") return json({ nombre: yo.nombre, rol: yo.rol, email: yo.email, stt: !!(await proveedorSTT()) });
 
     if (accion === "listar") {
       const area = ["directorio", "asambleas", "cursos"].includes(String(b.area)) ? String(b.area) : null;

@@ -215,7 +215,8 @@ function startSegment() {
   clearTimeout(segTimer); segTimer = setTimeout(() => { try { if (rec && rec.state === "recording") rec.stop(); } catch {} }, SEG_MS);
 }
 function startRecognition() {
-  if (!SR || recog) return;
+  // Con transcripción en el servidor no se usa el reconocimiento del celular: compite por el micrófono con la grabación.
+  if (!SR || recog || (YO && YO.stt)) return;
   try {
     recog = new SR(); recog.lang = "es-BO"; recog.continuous = true; recog.interimResults = true;
     recog.onresult = ev => {
