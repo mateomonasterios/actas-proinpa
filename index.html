@@ -1,0 +1,278 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#020C1C">
+<title>Libro de Actas · Fundación PROINPA</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="favicon.png">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700;900&family=Montserrat:wght@400;500;600;700&family=IBM+Plex+Mono:wght@500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="estilos.css">
+<script defer src="vendor-supabase.js"></script>
+<script defer src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<script defer src="https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.6.0/mammoth.browser.min.js"></script>
+<script defer src="app.js"></script>
+</head>
+<body>
+<div class="wrap" id="app" hidden>
+  <header>
+    <div class="brand">
+      <div class="logoplate"><img src="logo.jpg" alt="Fundación PROINPA"></div>
+      <div>
+        <h1>Libro de Actas</h1>
+        <p id="whoLine">Fundación PROINPA</p>
+      </div>
+    </div>
+    <div style="display:flex;gap:8px;align-items:center;justify-content:space-between;flex:1 1 240px;flex-wrap:wrap">
+      <div class="save" id="saveState"><i></i><span>Guardado automático activo</span></div>
+      <div class="row" style="gap:6px">
+        <button class="lockbtn" id="usersBtn" hidden>Usuarios</button>
+        <button class="lockbtn" id="logoutBtn">Salir</button>
+      </div>
+    </div>
+  </header>
+
+  <nav role="tablist">
+    <button role="tab" aria-selected="true" data-tab="grabar"><b>01</b>Grabar</button>
+    <button role="tab" aria-selected="false" data-tab="reunion"><b>02</b>Reunión</button>
+    <button role="tab" aria-selected="false" data-tab="acta"><b>03</b>Acta</button>
+  </nav>
+
+  <!-- 01 GRABAR -->
+  <section id="v-grabar" style="display:grid;gap:16px">
+    <div class="card create">
+      <div style="display:grid;gap:2px">
+        <h2 id="meetTitle">Sin reunión creada</h2>
+        <span class="hint" id="meetSub">Crea la reunión y carga la convocatoria antes de grabar.</span>
+      </div>
+      <button class="btn primary" id="createBtn">Crear reunión</button>
+      <label for="m-area" style="flex-basis:100%">Área de destino del historial
+        <select id="m-area"><option value="directorio">Reuniones de directorio</option><option value="asambleas">Reuniones de asambleas</option><option value="cursos">Cursos o talleres</option></select>
+      </label>
+    </div>
+
+    <div class="card" id="ctxCard" hidden>
+      <div class="row" style="justify-content:space-between"><h3>Documentos de contexto</h3>
+        <label class="btn" for="docIn2" style="padding:6px 10px;font-size:13px">Añadir documento</label>
+        <input type="file" id="docIn2" accept=".pdf,.docx,.txt,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document" multiple hidden>
+      </div>
+      <div class="docs" id="ctxDocs"></div>
+      <span class="progress" id="ctxProg" hidden></span>
+    </div>
+
+    <div class="banner warn" id="recoverBanner" hidden>
+      <strong id="recoverTitle">La grabación se interrumpió</strong>
+      <span id="recoverText">Todo lo grabado hasta ese momento quedó guardado. Toca Reanudar y la grabación sigue en el mismo registro.</span>
+      <div class="row"><button class="btn primary" id="resumeBtn">Reanudar grabación</button><button class="btn" id="dismissRecover">Cerrar aviso</button></div>
+    </div>
+    <div class="banner info" id="micBanner" hidden>
+      <strong>Este navegador no permite grabar</strong>
+      <span>Abre la app en Chrome (Android o computadora) o en Safari actualizado (iPhone). También puedes importar la transcripción de la grabadora del celular.</span>
+    </div>
+
+    <div class="card recorder">
+      <span class="state" id="stateChip">Listo para grabar</span>
+      <div class="clock" id="clock">00:00:00</div>
+      <div class="bar" aria-hidden="true"><span id="capBar"></span></div>
+      <div class="cap" id="capText">Límite por sesión: 3:00:00</div>
+      <button class="recbtn" id="recBtn" aria-label="Iniciar grabación">GRABAR</button>
+      <div class="row" style="justify-content:center">
+        <button class="btn" id="markBtn" disabled>Marcar punto del orden del día</button>
+      </div>
+      <p class="hint" id="audioLine" style="text-align:center"></p>
+      <p class="hint" style="text-align:center;max-width:48ch">El audio se guarda en tramos de 2 minutos en el servidor. Si se bloquea el celular, entra una llamada o se cierra la app, lo grabado no se pierde y puedes reanudar.</p>
+    </div>
+
+    <div class="card">
+      <div class="row" style="justify-content:space-between"><h2>Transcripción</h2><span class="hint" id="wordCount">0 palabras</span></div>
+      <div class="transcript" id="transcript"></div>
+      <div class="row" id="audioTools" hidden>
+        <button class="btn" id="transcribeBtn">Transcribir audio pendiente</button>
+        <span class="progress" id="sttProg" hidden></span>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Importar audio transcrito</h2>
+      <p class="hint">Si grabaste con la grabadora del celular (Grabadora de Google, Samsung o Notas de Voz de iPhone), exporta el texto y súbelo aquí.</p>
+      <div class="row">
+        <label class="btn" for="fileIn" style="display:inline-block">Subir archivo .txt / .srt / .vtt</label>
+        <input type="file" id="fileIn" accept=".txt,.srt,.vtt,text/plain" hidden>
+      </div>
+      <label for="pasteIn">O pega la transcripción
+        <textarea id="pasteIn" placeholder="Pega aquí el texto de la reunión…"></textarea>
+      </label>
+      <button class="btn" id="pasteBtn">Añadir al registro</button>
+    </div>
+  </section>
+
+  <!-- 02 REUNIÓN -->
+  <section id="v-reunion" hidden style="display:none;gap:16px">
+    <div class="card">
+      <h2>Datos de la sesión</h2>
+      <div class="grid2">
+        <label for="m-tipo">Tipo
+          <select id="m-tipo">
+            <option>Asamblea General Ordinaria</option><option>Asamblea General Extraordinaria</option>
+            <option>Reunión de Directorio</option><option>Junta de Socios</option><option>Reunión de Trabajo</option><option>Curso</option><option>Taller</option>
+          </select></label>
+        <label for="m-entidad">Entidad u organización<input id="m-entidad" placeholder="Nombre de la entidad"></label>
+        <label for="m-fecha">Fecha<input id="m-fecha" type="date"></label>
+        <label for="m-hora">Hora de inicio<input id="m-hora" type="time"></label>
+        <label for="m-lugar">Lugar<input id="m-lugar" placeholder="Dirección o modalidad"></label>
+        <label for="m-preside">Preside<input id="m-preside" placeholder="Cristian Aparicio"></label>
+        <label for="m-secretario">Secretario(a) de actas<input id="m-secretario" placeholder="Nombre"></label>
+        <label for="m-convocatoria">Convocatoria<select id="m-convocatoria"><option>Primera convocatoria</option><option>Segunda convocatoria</option></select></label>
+      </div>
+    </div>
+
+    <div class="card" id="quorumCard">
+      <h2>Quórum</h2>
+      <div class="quorum">
+        <div class="ring" id="qRing">0/0</div>
+        <div style="display:grid;gap:6px">
+          <span class="qstat no" id="qStat">Sin quórum</span>
+          <span class="hint" id="qText">Registra asistentes para calcular.</span>
+        </div>
+      </div>
+      <div class="grid2">
+        <label for="m-total">Miembros habilitados (total)<input id="m-total" type="number" min="1" inputmode="numeric" placeholder="Ej. 25"></label>
+        <label for="m-regla">Regla de quórum
+          <select id="m-regla"><option value="simple">Mayoría absoluta (50% + 1)</option><option value="dos3">Dos tercios (2/3)</option><option value="tercio">Un tercio (segunda convocatoria)</option><option value="todos">Totalidad</option></select></label>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="row" style="justify-content:space-between"><h2>Asistentes</h2><span class="hint" id="attCount"></span></div>
+      <button class="btn primary" id="detectBtn">Detectar asistentes y orden del día en la grabación</button>
+      <span class="progress" id="detectProg" hidden></span>
+      <div class="list" id="people"></div>
+      <div class="row">
+        <input id="newName" placeholder="Nombre" style="flex:2;min-width:140px">
+        <input id="newRole" placeholder="Cargo" style="flex:1;min-width:100px">
+        <button class="btn" id="addPerson">Añadir</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Orden del día</h2>
+      <div class="list" id="agenda"></div>
+      <div class="row">
+        <input id="newPoint" placeholder="Nuevo punto" style="flex:1;min-width:180px">
+        <button class="btn" id="addPoint">Añadir</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- 03 ACTA -->
+  <section id="v-acta" hidden style="display:none;gap:16px">
+    <div class="card">
+      <h2>Generar acta</h2>
+      <p class="hint">Redacta el documento formal a partir de la transcripción, los datos de la sesión y los documentos de contexto.</p>
+      <button class="btn primary big" id="genBtn">Generar acta de la reunión</button>
+      <span class="progress" id="genProg" hidden></span>
+    </div>
+    <div id="actaOut"></div>
+    <div class="row" id="actaActions" hidden>
+      <button class="btn" id="copyBtn">Copiar texto</button>
+      <button class="btn" id="dlBtn">Descargar para Word</button>
+      <button class="btn" id="printBtn">Imprimir o guardar PDF</button>
+      <button class="btn primary" id="archBtn">Enviar al historial</button>
+    </div>
+    <div class="card">
+      <div class="row" style="justify-content:space-between"><h2>Historial por área</h2><button class="lockbtn" id="histReload">Actualizar</button></div>
+      <div class="chips" id="histFilter">
+        <button data-f="todas" aria-pressed="true">Todas</button>
+        <button data-f="directorio" aria-pressed="false">Directorio</button>
+        <button data-f="asambleas" aria-pressed="false">Asambleas</button>
+        <button data-f="cursos" aria-pressed="false">Cursos o talleres</button>
+      </div>
+      <div class="hist" id="hist"></div>
+    </div>
+  </section>
+</div>
+
+<!-- Crear reunión -->
+<div class="modal" id="createModal" hidden role="dialog" aria-labelledby="createH">
+  <div class="card wide">
+    <h2 id="createH">Crear reunión</h2>
+    <p class="hint">Carga la convocatoria, el orden del día, la lista de miembros o el acta anterior. La grabación y el acta se harán sobre ese contexto.</p>
+    <h3>Área a la que se enviará el historial</h3>
+    <div class="areas" id="c-area" role="group" aria-label="Área de destino">
+      <button type="button" data-area="directorio" aria-pressed="true">Reuniones de directorio<small>Acta de directorio</small></button>
+      <button type="button" data-area="asambleas" aria-pressed="false">Reuniones de asambleas<small>Acta con quórum</small></button>
+      <button type="button" data-area="cursos" aria-pressed="false">Cursos o talleres<small>Informe del curso</small></button>
+    </div>
+    <div class="grid2">
+      <label for="c-tipo">Tipo
+        <select id="c-tipo">
+          <option>Asamblea General Ordinaria</option><option>Asamblea General Extraordinaria</option>
+          <option>Reunión de Directorio</option><option>Junta de Socios</option><option>Reunión de Trabajo</option><option>Curso</option><option>Taller</option>
+        </select></label>
+      <label for="c-entidad">Entidad u organización<input id="c-entidad" placeholder="Se completa con el documento"></label>
+      <label for="c-fecha">Fecha<input id="c-fecha" type="date"></label>
+      <label for="c-hora">Hora de inicio<input id="c-hora" type="time"></label>
+    </div>
+    <label class="drop" for="docIn" id="drop">
+      <strong>Subir documento PDF o Word</strong>
+      <span>Toca para elegir o arrastra aquí · .pdf · .docx · .txt</span>
+    </label>
+    <input type="file" id="docIn" accept=".pdf,.docx,.txt,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document" multiple hidden>
+    <div class="docs" id="pendDocs"></div>
+    <span class="progress" id="pendProg" hidden></span>
+    <div id="pendCtx"></div>
+    <p class="hint" id="archNote" hidden>La reunión actual queda guardada en el historial antes de crear la nueva.</p>
+    <div class="row">
+      <button class="btn primary" id="startMeeting">Empezar grabación</button>
+      <button class="btn" id="createOnly">Crear sin grabar</button>
+      <button class="btn" id="createCancel">Cancelar</button>
+    </div>
+  </div>
+</div>
+
+<!-- Usuarios (solo administradores) -->
+<div class="modal" id="usersModal" hidden role="dialog" aria-labelledby="usersH">
+  <div class="card wide">
+    <div class="row" style="justify-content:space-between"><h2 id="usersH">Usuarios con acceso</h2><button class="lockbtn" id="usersClose">Cerrar</button></div>
+    <div class="list" id="usersList"></div>
+    <h3>Dar acceso a una persona</h3>
+    <div class="grid2">
+      <label for="u-nombre">Nombre<input id="u-nombre" placeholder="Cristian Aparicio"></label>
+      <label for="u-email">Correo<input id="u-email" type="email" autocomplete="off" placeholder="correo@proinpa.org"></label>
+      <label for="u-pass">Contraseña inicial<input id="u-pass" type="text" autocomplete="new-password" placeholder="Mínimo 8 caracteres"></label>
+      <label for="u-rol">Rol<select id="u-rol"><option value="secretario">Graba y redacta</option><option value="admin">Administrador</option><option value="lector">Solo lectura</option></select></label>
+    </div>
+    <p class="hint">Si el correo ya tiene cuenta en otro sistema de Disruptivo 360, entra con su misma contraseña.</p>
+    <button class="btn primary" id="u-crear">Dar acceso</button>
+    <span class="progress" id="usersProg" hidden></span>
+  </div>
+</div>
+
+<!-- Ingreso -->
+<div class="login" id="login" role="dialog" aria-labelledby="loginH">
+  <div class="inner">
+    <div class="plate"><img src="logo.jpg" alt="Fundación PROINPA · Agricultura sostenible y regenerativa"></div>
+    <div>
+      <h1 id="loginH">Libro de Actas</h1>
+      <p class="who">Grabación e informes de reuniones</p>
+    </div>
+    <form class="lform" id="loginForm" novalidate>
+      <label for="l-email">Correo<input id="l-email" type="email" autocomplete="username" inputmode="email" required></label>
+      <label for="l-pass">Contraseña<input id="l-pass" type="password" autocomplete="current-password" required></label>
+      <div class="msg" id="loginMsg" aria-live="polite"></div>
+      <button class="lbtn" type="submit" id="loginBtn">Entrar</button>
+    </form>
+  </div>
+  <div>
+    <div class="bands" aria-hidden="true"><span></span><span></span><span></span><span></span><span></span><span></span><span></span></div>
+    <div class="foot">FUNDACIÓN PROINPA · AGRICULTURA SOSTENIBLE Y REGENERATIVA</div>
+  </div>
+</div>
+<div class="toast" id="toast" role="status"></div>
+</body>
+</html>
