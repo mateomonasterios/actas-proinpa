@@ -32,6 +32,7 @@
       <div class="save" id="saveState"><i></i><span>Guardado automático activo</span></div>
       <div class="row" style="gap:6px">
         <button class="lockbtn" id="usersBtn" hidden>Usuarios</button>
+        <button class="lockbtn" id="passBtn">Contraseña</button>
         <button class="lockbtn" id="logoutBtn">Salir</button>
       </div>
     </div>
@@ -250,6 +251,18 @@
     <p class="hint">Si el correo ya tiene cuenta en otro sistema de Disruptivo 360, entra con su misma contraseña.</p>
     <button class="btn primary" id="u-crear">Dar acceso</button>
     <span class="progress" id="usersProg" hidden></span>
+  </div>
+</div>
+
+<!-- Cambiar contraseña -->
+<div class="modal" id="passModal" hidden role="dialog" aria-labelledby="passH">
+  <div class="card">
+    <h2 id="passH">Cambiar mi contraseña</h2>
+    <p class="hint" id="passWho"></p>
+    <label for="p-new">Contraseña nueva<input id="p-new" type="password" autocomplete="new-password" placeholder="Mínimo 8 caracteres"></label>
+    <label for="p-new2">Repite la contraseña<input id="p-new2" type="password" autocomplete="new-password"></label>
+    <span class="progress" id="passProg" hidden></span>
+    <div class="row"><button class="btn primary" id="passSave">Guardar</button><button class="btn" id="passClose">Cerrar</button></div>
   </div>
 </div>
 

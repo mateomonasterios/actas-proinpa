@@ -781,6 +781,22 @@ $("u-crear").onclick = async () => {
 };
 
 /* =========================================================
+   Cambiar mi contraseña
+   ========================================================= */
+$("passBtn").onclick = () => { $("passWho").textContent = "Cuenta: " + (YO ? YO.email : ""); $("p-new").value = $("p-new2").value = ""; $("passProg").hidden = true; $("passModal").hidden = false; };
+$("passClose").onclick = () => $("passModal").hidden = true;
+$("passSave").onclick = async () => {
+  const p = $("passProg"), a = $("p-new").value, b = $("p-new2").value;
+  p.hidden = false; p.style.color = "var(--rec)";
+  if (a.length < 8) { p.textContent = "Debe tener al menos 8 caracteres."; return; }
+  if (a !== b) { p.textContent = "Las dos contraseñas no coinciden."; return; }
+  p.style.color = ""; p.textContent = "Guardando…";
+  const { error } = await sb.auth.updateUser({ password: a });
+  if (error) { p.style.color = "var(--rec)"; p.textContent = /same/i.test(error.message) ? "Es igual a la contraseña actual." : error.message; return; }
+  p.textContent = "Listo. Desde ahora entra con la contraseña nueva."; $("p-new").value = $("p-new2").value = "";
+};
+
+/* =========================================================
    Arranque
    ========================================================= */
 function renderAll() {
